@@ -5,7 +5,7 @@
 
 #define PLUGIN_196
 #define PLUGIN_ID_196 196
-#define PLUGIN_NAME_196 "Temperature & Humidity - DHT_Unified (WeMos)"
+#define PLUGIN_NAME_196 "Temperature & Humidity - DHT(WeMos)"
 #define PLUGIN_VALUENAME1_196 "Temperature"
 #define PLUGIN_VALUENAME2_196 "Humidity"
 
@@ -13,13 +13,10 @@
 
 boolean Plugin_196_init = false;
 
-#include <Adafruit_Sensor.h>
 #include <DHT.h>
-#include <DHT_U.h>
 
 // DHT dht(DHT_PIN,DHT_TYPE);
-DHT_Unified *dht;
-sensor_t sensor;
+DHT *dht;
 long sensor_delay_ms;
 // unsigned long last_millis;
 
@@ -33,18 +30,18 @@ boolean Plugin_196_DHT_init(struct EventStruct *event) {
   case 2:
     log = "DHT21 on pin ";
     log += String(pin);
-    dht = new DHT_Unified(DHT21, pin);
+    dht = new DHT(DHT21, pin);
     break;
   case 3:
     log = "init DHT22 on pin ";
     log += String(pin);
-    dht = new DHT_Unified(DHT22, pin);
+    dht = new DHT(DHT22, pin);
     break;
   case 1:
   default:
     log = "init default DHT11(blue) on pin ";
     log += String(pin);
-    dht = new DHT_Unified(DHT11, pin);
+    dht = new DHT(DHT11, pin);
     break;
   }
   log += " - PIN(";
@@ -56,7 +53,6 @@ boolean Plugin_196_DHT_init(struct EventStruct *event) {
   //
   if (dht != NULL) {
     dht->begin();
-    dht->temperature().getSensor(&sensor);
     Dump_DHT_Sensor(event);
   } else {
     addLog(LOG_LEVEL_ERROR, "no DHT sensor object found");
@@ -64,34 +60,21 @@ boolean Plugin_196_DHT_init(struct EventStruct *event) {
 }
 
 void Dump_DHT_Sensor(struct EventStruct *event) {
-  String log = "DHT_Unified:";
-  sensor_t sensor;
+  String log = "read DHT-Sensor";
   if (dht != NULL) {
-    dht->temperature().getSensor(&sensor);
+    float t = dht->readTemperature();
+    float h = dht->readHumidity();
+    float hi = dht->computeHeatIndex(t, h, false);
     log += "\n----------------------------------";
-    log += "\nTemperature";
-    log += "\nName:       " + String(sensor.name);
-    log += "\nDriver Ver. " + String(sensor.version);
-    log += "\nUnique ID:  " + String(sensor.sensor_id);
-    log += "\nMax Value:  " + String(sensor.max_value) + " *C";
-    log += "\nMin Value:  " + String(sensor.min_value) + " *C";
-    log += "\nResolution: " + String(sensor.resolution) + " *C";
-    log += "\n----------------------------------";
-    dht->humidity().getSensor(&sensor);
-    log += "\n----------------------------------";
-    log += "\nHumidity";
-    log += "\nName:       " + String(sensor.name);
-    log += "\nDriver Ver. " + String(sensor.version);
-    log += "\nUnique ID:  " + String(sensor.sensor_id);
-    log += "\nMax Value:  " + String(sensor.max_value) + " *C";
-    log += "\nMin Value:  " + String(sensor.min_value) + " *C";
-    log += "\nResolution: " + String(sensor.resolution) + " *C";
+    log += "\nTempearature:   " + String(t);
+    log += "\nHumidity:       " + String(h);
+    log += "\nHeatIndex:      " + String(hi);
+
     log += "\n----------------------------------";
     addLog(LOG_LEVEL_INFO, log);
   } else {
     addLog(LOG_LEVEL_ERROR, "can't DUMP sensor - no object found");
   }
-  sensor_delay_ms = sensor.min_delay / 1000;
 }
 
 boolean Plugin_196(byte function, struct EventStruct *event, String &string) {
@@ -192,34 +175,38 @@ boolean Plugin_196(byte function, struct EventStruct *event, String &string) {
 
   case PLUGIN_READ: {
     String log = "PLUGIN_READ";
-    float dht_dat[3];
-    sensors_event_t sensor_event;
+    float t, h, hi;
 
     // --------- Humidity -----------------------
-    dht->humidity().getEvent(&sensor_event);
-    if (isnan(sensor_event.relative_humidity)) {
-      log = "Error reading DHT sensor.humidity";
+    h = dht->readHumidity();
+    if (isnan(h)) {
+      log = "Error reading DHT humidity";
       success = false;
     } else {
-      dht_dat[0] = sensor_event.relative_humidity;
-      log += "\nHumidity:     " + String(dht_dat[0]) + " %";
+      log += "\nHumidity:     " + String(h) + " %";
     }
     //
-    delay(sensor_delay_ms);
     //---------- Tempearture ----------------------
-    dht->temperature().getEvent(&sensor_event);
-    if (isnan(sensor_event.temperature)) {
-      log = "Error reading DHT sensor.temperature";
+    t = dht->readTemperature();
+    if (isnan(t)) {
+      log = "Error reading DHT temperature";
       success = false;
     } else {
-      dht_dat[1] = sensor_event.temperature;
-      log += "\nTemperature:   " + String(dht_dat[1]) + " *C";
+      log += "\nTemperature:   " + String(t) + " *C";
+    }
+    //---------- HeadIndex ----------------------
+    hi = dht->computeHeatIndex(t, h, false); // for Celcius
+    if (isnan(hi)) {
+      log = "Error reading DHT heat index";
+      success = false;
+    } else {
+      log += "\nTemperature:   " + String(hi) + " *C";
     }
     addLog(LOG_LEVEL_INFO, log);
 
-    UserVar[event->BaseVarIndex] = dht_dat[0];
-    UserVar[event->BaseVarIndex + 1] = dht_dat[1];
-    UserVar[event->BaseVarIndex + 2] = -1;
+    UserVar[event->BaseVarIndex] = t;
+    UserVar[event->BaseVarIndex + 1] = h;
+    UserVar[event->BaseVarIndex + 2] = hi;
 
     success = true;
 
@@ -227,6 +214,7 @@ boolean Plugin_196(byte function, struct EventStruct *event, String &string) {
       addLog(LOG_LEVEL_INFO, log);
       UserVar[event->BaseVarIndex] = NAN;
       UserVar[event->BaseVarIndex + 1] = NAN;
+      UserVar[event->BaseVarIndex + 2] = NAN;
     }
     break;
   }
